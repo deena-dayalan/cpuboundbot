@@ -7,6 +7,7 @@ import (
 	"time"
 
 	//"github.com/atc0005/go-teams-notify/v2"
+	"bufio"
 	"io"
 	"io/ioutil"
 	"os"
@@ -105,41 +106,41 @@ func logCopy(originalFile string) string {
 	return newFile
 }
 
-/*func logRecycle(filepath string) {
+func logCompare(logNew string, logOld string) string {
 
-	newFile := logCopy(filepath)
-	file, err := os.OpenFile(newFile, os.O_RDONLY, os.ModePerm)
+	oldFile, err := os.OpenFile(logOld, os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		log.Println(err)
 	}
-	timenow := timeCheck()
-	read := bufio.NewReader(file)
+	defer oldFile.Close()
+	readOld := bufio.NewReader(oldFile)
+	lines := ""
 	for {
-		line, err := read.ReadString('\n')
+		lineOld, err := readOld.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
 				break
 			}
 			log.Fatalf("log file read line error: %v", err)
 		}
-		if len(line) > 0 {
-			word := strings.Split(line, ",")
-			fmt.Println("5: ", word[5])
-			prev, _ := strconv.ParseInt(word[5], 10, 64)
-			if timenow-prev < 601 {
-				uid := word[0]
-				username := word[1]
-				usage := word[2]
-				notify := word[3]
-				//host := word[4]
-				tmt := word[5]
-				writeLog(uid, username, usage, notify, tmt)
+		if len(lineOld) > 0 {
+			word := strings.Split(lineOld, ",")
+			uid := word[0]
+			check := IsExist(uid, logNew)
+			if check {
+				lines += lineOld + "/n"
 			}
-
 		}
 	}
 
-}*/
+	if len(lines) > 0 {
+		if err := os.Truncate(logOld, 0); err != nil {
+			log.Printf("Failed to truncate: %v", err)
+		}
+		writeLog(lines, logOld)
+	}
+	return ""
+}
 
 func IsExist(str, filepath string) bool {
 	b, err := ioutil.ReadFile(filepath)
@@ -153,7 +154,7 @@ func IsExist(str, filepath string) bool {
 	return isExist
 }
 
-func alertEmail(username string, message string, usage string) (string, int64) {
+func alertEmail(username string, message string, usage string) (string, string) {
 
 	to := []string{username + "@northeastern.edu"}
 	to = append(to, rc_email_list)
@@ -168,11 +169,12 @@ func alertEmail(username string, message string, usage string) (string, int64) {
 		log.Println(err)
 		notify = "un-notified"
 	}
-	return notify, timeNow
+	timeString := strconv.Itoa(timeNow)
+	return notify, timeString
 }
 
-func notification() ([]string, []string) {
-	content, err := ioutil.ReadFile(LOG_FILE)
+func notification(filepath string) ([]string, []string) {
+	content, err := ioutil.ReadFile(filepath)
 	if err != nil {
 		log.Println(err)
 	}
@@ -193,8 +195,8 @@ func notification() ([]string, []string) {
 	return notifd, unNotifd
 }
 
-func teamsMessage() {
-	notifd, unNotifd := notification()
+func teamsMessage(filepath string) {
+	notifd, unNotifd := notification(filepath)
 	mstClient := goteamsnotify.NewClient()
 	msgCard := goteamsnotify.NewMessageCard()
 	msgCard.Title = "CPU high usage alert"
@@ -219,25 +221,52 @@ func teamsMessage() {
 	mstClient.Send(webhookUrl, msgCard)
 }
 
-/*func writeLog(uid string, username string, usage string, notify string, timeStamp string) {
+func alerting(orgLog string, prevLog string) {
 
-	//tmt := strconv.Itoa(timeStamp)
-	logLine := uid + "," + username + "," + usage + "," + notify + "," + host + "," + timeStamp
-	f, err := os.OpenFile(LOG_FILE, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	file, err := os.OpenFile(orgLog, os.O_RDONLY, os.ModePerm)
 	if err != nil {
 		log.Println(err)
 	}
-	defer f.Close()
-	if _, err := f.WriteString(logLine + "\n"); err != nil {
-		log.Println(err)
+	defer file.Close()
+	read := bufio.NewReader(file)
+	for {
+		line, err := read.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			log.Fatalf("log file read line error: %v", err)
+		}
+		if len(line) > 0 {
+			word := strings.Split(line, ",")
+			uid := word[0]
+			username := word[1]
+			usage := word[2]
+			infractions := CgLs(uid)
+			if _, error := os.Stat(prevLog); error == nil {
+				//prev file is not empty
+				check := IsExist(uid, prevLog)
+				if !check {
+					notice, timeStamp := alertEmail(username, infractions, usage)
+					newLine := uid + "," + username + "," + usage + "," + notice + "," + timeStamp
+					writeLog(newLine, prevLog)
+				}
+
+			} else {
+				//prev file empty; write prev file
+				notice, timeStamp := alertEmail(username, infractions, usage)
+				newLine := uid + "," + username + "," + usage + "," + notice + "," + timeStamp
+				writeLog(newLine, prevLog)
+			}
+		}
 	}
 
-}*/
+}
 
-func writeLog(line string) {
+func writeLog(line string, file string) {
 
 	logLine := line
-	f, err := os.OpenFile(LOG_FILE, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Println(err)
 	}
@@ -251,7 +280,6 @@ func writeLog(line string) {
 func compareUsage(old Reading, new Reading, maxusage int) {
 
 	duration := new.Timestamp.Sub(old.Timestamp)
-
 	for uid, cpu := range new.Entries {
 		used := cpu - old.Entries[uid]
 		usage := int(math.Round(float64(used) / float64(duration) * 100))
@@ -261,18 +289,9 @@ func compareUsage(old Reading, new Reading, maxusage int) {
 				log.Fatalf("Unable to resolve uid %s\n", uid)
 			}
 			username := user.Username
-			//infractions := CgLs(uid)
-			//check := IsExist(username, LOG_FILE)
-			//notice := "notified"
-			//timeStamp := timeCheck()
 			cpuUsage := strconv.Itoa(usage) + "%"
-			//tmt := strconv.Itoa(timeStamp)
-			/*if !check {
-				notice, timeStamp = alertEmail(username, infractions, cpuUsage)
-			}*/
-			//writeLog(uid, username, usage, notice, timeStamp)
 			line := uid + "," + username + "," + cpuUsage
-			writeLog(line)
+			writeLog(line, LOG_FILE)
 		}
 	}
 
@@ -328,6 +347,7 @@ func main() {
 		log.Fatalf("Unable to determine hostname\n")
 	}
 	LOG_FILE = LOG_FILE + host
+	prevFile := LOG_FILE + "_bkp"
 
 	for {
 
@@ -347,12 +367,16 @@ func main() {
 
 		if _, err := os.Stat(LOG_FILE); err == nil {
 
-			bkpLog := logCopy(LOG_FILE)
+			alerting(LOG_FILE, prevFile)
 
-			teamsMessage()
+			logCompare(LOG_FILE, prevFile)
+
+			teamsMessage(prevFile)
+
+			if err := os.Truncate(LOG_FILE, 0); err != nil {
+				log.Printf("Failed to truncate: %v", err)
+			}
 		}
-
-		//logRecycle(LOG_FILE)
 
 		time.Sleep(period)
 	}
