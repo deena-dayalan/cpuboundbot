@@ -5,21 +5,15 @@ import (
 	"math"
 	"net/smtp"
 	"time"
-
-	//"github.com/atc0005/go-teams-notify/v2"
-	"bufio"
-	"io"
+	"github.com/atc0005/go-teams-notify/v2"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"os/user"
-	"strings"
-	"time"
-
-	//"os/exec"
-	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 type Config struct {
@@ -34,11 +28,11 @@ type Reading struct {
 }
 
 //Global variables
-var host string
-var LOG_FILE string = "/home/d.dasarathan/cpuboundbot/cpubot"
-var rc_email_list = "d.dasarathan@northeastern.edu"
+var hostName string
+var currentFile string
+var LOG_FILE string = "/home/d.dasarathan/cpuboundbot/cpubot_test_"
+var rc_email_list = "dasarathan.d@northeastern.edu"
 
-//const mailedUsers = "/home/d.dasarathan/cpuboundbot/mailedUsers"
 const SLICES = "/sys/fs/cgroup/cpu/user.slice"
 const webhookUrl = "https://northeastern.webhook.office.com/webhookb2/8ec2dc62-2e7c-4cf2-882b-e8fe8e4f3c3f@a8eec281-aaa3-4dae-ac9b-9a398b9215e7/IncomingWebhook/90f15f2d7a9d4383b10e0415f8e975bb/ed3c5fea-f873-40fa-8474-573432ab0a58"
 
@@ -69,79 +63,6 @@ func timeCheck() int64 {
 	return timeStamp
 }
 
-/*func mailLog(username string, timenow int64) {
-	tmt := strconv.Itoa(timenow)
-	logLine := username + "," + tmt
-	f, err := os.OpenFile(mailedUsers, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Println(err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString(logLine + "\n"); err != nil {
-		log.Println(err)
-	}
-
-}*/
-
-func logCopy(originalFile string) string {
-
-	original, err := os.Open(originalFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer original.Close()
-
-	// Create new file
-	newFile := LOG_FILE + "_bkp"
-	new, err := os.Create(newFile)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer new.Close()
-
-	//This will copy
-	if _, err := io.Copy(new, original); err != nil {
-		log.Fatal(err)
-	}
-	return newFile
-}
-
-func logCompare(logNew string, logOld string) string {
-
-	oldFile, err := os.OpenFile(logOld, os.O_RDONLY, os.ModePerm)
-	if err != nil {
-		log.Println(err)
-	}
-	defer oldFile.Close()
-	readOld := bufio.NewReader(oldFile)
-	lines := ""
-	for {
-		lineOld, err := readOld.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Fatalf("log file read line error: %v", err)
-		}
-		if len(lineOld) > 0 {
-			word := strings.Split(lineOld, ",")
-			uid := word[0]
-			check := IsExist(uid, logNew)
-			if check {
-				lines += lineOld + "/n"
-			}
-		}
-	}
-
-	if len(lines) > 0 {
-		if err := os.Truncate(logOld, 0); err != nil {
-			log.Printf("Failed to truncate: %v", err)
-		}
-		writeLog(lines, logOld)
-	}
-	return ""
-}
-
 func IsExist(str, filepath string) bool {
 	b, err := ioutil.ReadFile(filepath)
 	if err != nil {
@@ -156,20 +77,32 @@ func IsExist(str, filepath string) bool {
 
 func alertEmail(username string, message string, usage string) (string, string) {
 
+	from := "rchelp@northeastern.edu"
 	to := []string{username + "@northeastern.edu"}
 	to = append(to, rc_email_list)
-	msg := []byte("To: Discovery Alerts - Research Computing\r\n" +
-		"Subject: cpuboundbot notice (" + username + ")\r\n" +
-		"\r\n" + message + "\r\n" + "Usage: " + usage + "\r\n" +
-		"Please do not run cpu intensive tasks on login nodes." + "\n\n" + "Thanks," + "\n" + "Research Computing.")
-	err := smtp.SendMail("smtp.discovery.neu.edu:25", nil, "CPUBoundBot@discovery.neu.edu", to, msg)
+	subject := "Subject: CPUBoundBot notice (" + username + ")\n"
+	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
+	body := "<html><body>Hello User,<br><br>We have encountered your job running on the login node (" + hostName + ")." + "<br>" +
+		"The following are the processes running under your user account," + "<br>" +
+		"<pre>" + message + "</pre><br>" + "CPU usage: " + usage + "<br>" +
+		"Kindly do not run CPU intensive tasks on the login nodes. " + "<br>" +
+		"Please run a srun command to get compute node or submit your program in sbatch script. " +
+		"Refer below links for more information on sbatch and srun," + "<br>" +
+		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/sbatch.html" + ">sbatch documentation</a><br>" +
+		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/srun.html" + ">srun documentation</a><br>"
+
+	tail := "<br>" + "Thanks," + "<br>" + "Research Computing." + "<br>" + "Northeastern University." + "<br>" + 
+	"<a href=" + "mailto:rchelp@northeastern.edu" + ">RC Help</a>" +	"</body></html>"
+	msg := []byte(subject + mime + body + tail)
+
+	err := smtp.SendMail("smtp.discovery.neu.edu:25", nil, from, to, msg)
 	notify := "notified"
 	timeNow := timeCheck()
 	if err != nil {
 		log.Println(err)
 		notify = "un-notified"
 	}
-	timeString := strconv.Itoa(timeNow)
+	timeString := strconv.FormatInt(timeNow, 10)
 	return notify, timeString
 }
 
@@ -188,19 +121,28 @@ func notification(filepath string) ([]string, []string) {
 			if words[3] == "un-notified" {
 				unNotifd = append(unNotifd, words[1]+","+words[2])
 			} else if words[3] == "notified" {
-				notifd = append(notifd, words[1]+","+words[2])
+				notifd = append(notifd, words[1]+","+words[2]+","+words[4])
 			}
 		}
 	}
 	return notifd, unNotifd
 }
 
+func timeConversion(unixTime string) string {
+	uTime, _ := strconv.ParseInt(unixTime, 10, 64)
+	dateTime := time.Unix(uTime, 0)
+	loc, _ := time.LoadLocation("America/New_York")
+	newTime := dateTime.In(loc).Format("2006-01-02 15:04:05")
+	return newTime
+}
+
 func teamsMessage(filepath string) {
 	notifd, unNotifd := notification(filepath)
 	mstClient := goteamsnotify.NewClient()
 	msgCard := goteamsnotify.NewMessageCard()
-	msgCard.Title = "CPU high usage alert"
-	messageText := "Notice: User(s) performing cpu intensive task on " + host + " node.<br>"
+	//msgCard.Title = "CPU high usage alert" for testing by deena
+	msgCard.Title = "Test alert please ignore"
+	messageText := "Notice: User(s) performing cpu intensive task on " + hostName + " node.<br>"
 	if len(unNotifd) > 0 {
 		userList := ""
 		for i := 0; i < len(unNotifd); i++ {
@@ -212,55 +154,15 @@ func teamsMessage(filepath string) {
 		userList := ""
 		for i := 0; i < len(notifd); i++ {
 			word := strings.Split(notifd[i], ",")
-			userList += "Username: " + word[0] + " Usage: " + word[1] + "<br>"
+			notified := timeConversion(word[2])
+			//userList += "Username: " + word[0] + " Usage: " + word[1] + "<br>"
+			userList += "Username: " + word[0] + " Usage: " + word[1] + " Notified: " + notified + "<br>"
 		}
 		messageText = messageText + "Email sent to the following user(s).<br>" + userList + "<br>"
 	}
 	msgCard.Text = messageText
 	msgCard.ThemeColor = "#DF813D"
 	mstClient.Send(webhookUrl, msgCard)
-}
-
-func alerting(orgLog string, prevLog string) {
-
-	file, err := os.OpenFile(orgLog, os.O_RDONLY, os.ModePerm)
-	if err != nil {
-		log.Println(err)
-	}
-	defer file.Close()
-	read := bufio.NewReader(file)
-	for {
-		line, err := read.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			log.Fatalf("log file read line error: %v", err)
-		}
-		if len(line) > 0 {
-			word := strings.Split(line, ",")
-			uid := word[0]
-			username := word[1]
-			usage := word[2]
-			infractions := CgLs(uid)
-			if _, error := os.Stat(prevLog); error == nil {
-				//prev file is not empty
-				check := IsExist(uid, prevLog)
-				if !check {
-					notice, timeStamp := alertEmail(username, infractions, usage)
-					newLine := uid + "," + username + "," + usage + "," + notice + "," + timeStamp
-					writeLog(newLine, prevLog)
-				}
-
-			} else {
-				//prev file empty; write prev file
-				notice, timeStamp := alertEmail(username, infractions, usage)
-				newLine := uid + "," + username + "," + usage + "," + notice + "," + timeStamp
-				writeLog(newLine, prevLog)
-			}
-		}
-	}
-
 }
 
 func writeLog(line string, file string) {
@@ -274,25 +176,66 @@ func writeLog(line string, file string) {
 	if _, err := f.WriteString(logLine + "\n"); err != nil {
 		log.Println(err)
 	}
-
 }
 
 func compareUsage(old Reading, new Reading, maxusage int) {
-
+	fmt.Println("compareUsage")
 	duration := new.Timestamp.Sub(old.Timestamp)
 	for uid, cpu := range new.Entries {
 		used := cpu - old.Entries[uid]
 		usage := int(math.Round(float64(used) / float64(duration) * 100))
-		if usage > maxusage {
-			user, err := user.LookupId(uid)
-			if err != nil {
-				log.Fatalf("Unable to resolve uid %s\n", uid)
+			if usage >= maxusage {
+				user, err := user.LookupId(uid)
+				if err != nil {
+					log.Fatalf("Unable to resolve uid %s\n", uid)
+				}
+				username := user.Username
+				cpuUsage := strconv.Itoa(usage) + "%"
+				infractions := CgLs(uid)
+				//writing current log to validate against the main log
+				violator := uid + "," + username + "," + cpuUsage
+				fmt.Println("compareUsage usage >= max usage", violator)
+				writeLog(violator, currentFile)
+
+				check := IsExist(uid, LOG_FILE)
+				if !check {
+					//UID is new entry
+					fmt.Println("compareUsage---check false..UID do not exist in main log")
+					notice, timeStamp := alertEmail(username, infractions, cpuUsage)
+					line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
+					writeLog(line, LOG_FILE)
+				} else {
+					//UID already exist in file; then check for "notified" flag
+					fmt.Println("compareUsage---check true..UID already exist in main log")
+					input, err := ioutil.ReadFile(LOG_FILE)
+					if err != nil {
+						log.Fatalln(err)
+					}
+					lines := strings.Split(string(input), "\n")
+					for i, line := range lines {
+						if strings.Contains(line, uid) {
+							word := strings.Split(lines[i], ",")
+							notice := word[3]
+							sent, _ := strconv.ParseInt(word[4], 10, 64)
+							timeNow := timeCheck()
+							timeCheck := timeNow - sent
+							notifyCheck := strings.Compare(notice, "un-notified")
+							//if notifyCheck == 0 || timeCheck >= 600 {  --commented by deena
+							if notifyCheck == 0 || timeCheck >= 60 {
+								fmt.Println("compareUsage---check true..UID already exist in main log...un-notified or time check greater than 600")
+								notice, timeStamp := alertEmail(username, infractions, cpuUsage)
+								line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
+								lines[i] = line
+							}
+						}
+					}
+					output := strings.Join(lines, "\n")
+					err = ioutil.WriteFile(LOG_FILE, []byte(output), 0644)
+					if err != nil {
+						log.Fatalln(err)
+					}
+				}
 			}
-			username := user.Username
-			cpuUsage := strconv.Itoa(usage) + "%"
-			line := uid + "," + username + "," + cpuUsage
-			writeLog(line, LOG_FILE)
-		}
 	}
 
 }
@@ -317,7 +260,7 @@ func New() Reading {
 			m[uid] = usage
 		}
 	}
-	return Reading{host, now, m}
+	return Reading{hostName, now, m}
 }
 
 func readEntry(s string) int {
@@ -340,44 +283,94 @@ func chomp(s string) string {
 	return s[:x-1]
 }
 
+func logCompare(mainLog string, currLog string) {
+	//if current lof is empty (no violators); then cat /dev/null > mainlog
+	if _, err := os.Stat(currLog); err != nil {
+		fmt.Println("logCompare---current log is empty")
+		if err := os.Truncate(mainLog, 0); err != nil {
+			fmt.Println("logCompare---current log is empty..truncate main log")
+			log.Printf("Failed to truncate main log: %v", err)
+		}
+	} else {
+		fmt.Println("logCompare---current log is not empty")
+		input, err := ioutil.ReadFile(mainLog)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		lines := strings.Split(string(input), "\n")
+		var newLines []string
+		for i, line := range lines {
+			word := strings.Split(lines[i], ",")
+			UID := word[0]
+			check := IsExist(UID, currLog)
+			if check {
+				fmt.Println("logCompare---current log is not empty...line exit in current log")
+				fmt.Println(line)
+				newLines = append(newLines, line)
+			}
+		}
+		output := strings.Join(newLines, "\n")
+		err = ioutil.WriteFile(mainLog, []byte(output), 0644)
+		if err != nil {
+			log.Fatalln(err)
+		}
+	}
+
+}
+
 func main() {
 
-	host, err := os.Hostname()
-	if err != nil {
-		log.Fatalf("Unable to determine hostname\n")
+	hostName, _ = os.Hostname()
+	LOG_FILE = LOG_FILE + hostName
+	currentFile = LOG_FILE + "_current"
+
+	//creating main log file
+	_, e := os.Create(LOG_FILE)
+	if e != nil {
+		log.Fatal(e)
 	}
-	LOG_FILE = LOG_FILE + host
-	prevFile := LOG_FILE + "_bkp"
 
 	for {
 
-		c := Config{Period: "5m", MaxUsage: 35}
+		c := Config{Period: "5m", MaxUsage: 35} 
+		//c := Config{Period: "5s", MaxUsage: 0}
 		period, err := time.ParseDuration(c.Period)
 		if err != nil {
 			log.Fatalf("unable to parse period")
 		}
-
+		// CPU usage reading 1
 		baseReading := New()
 		fmt.Println("BaseReading: ", baseReading)
+		//sleep
 		time.Sleep(period)
+		// CPU usage reading 2
 		newReading := New()
 		fmt.Println("NewReading: ", newReading)
 
+		// compare reading 1 & 2 and check with threshold
 		compareUsage(baseReading, newReading, c.MaxUsage)
 
-		if _, err := os.Stat(LOG_FILE); err == nil {
-
-			alerting(LOG_FILE, prevFile)
-
-			logCompare(LOG_FILE, prevFile)
-
-			teamsMessage(prevFile)
-
-			if err := os.Truncate(LOG_FILE, 0); err != nil {
-				log.Printf("Failed to truncate: %v", err)
+		//delete entires in LOG_FILE if not present in current log; means the violater don't exist anymore
+		if fileCheck, err := os.Stat(LOG_FILE); err == nil {
+			if fileCheck.Size() > 0 {
+				logCompare(LOG_FILE, currentFile)
 			}
 		}
 
+		//LOG_FILE is not empty; then send alert to RC Teams channel
+		if fileCheck, err := os.Stat(LOG_FILE); err == nil {
+			if fileCheck.Size() > 0 {
+				teamsMessage(LOG_FILE)
+			}
+		}
+
+		//Deleting current log
+		if _, err := os.Stat(currentFile); err == nil {
+			os.Remove(currentFile)
+		}
+
+		//sleep
 		time.Sleep(period)
+
 	}
 }
