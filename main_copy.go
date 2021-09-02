@@ -5,7 +5,9 @@ import (
 	"math"
 	"net/smtp"
 	"time"
+
 	"github.com/atc0005/go-teams-notify/v2"
+
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -80,19 +82,26 @@ func alertEmail(username string, message string, usage string) (string, string) 
 	from := "rchelp@northeastern.edu"
 	to := []string{username + "@northeastern.edu"}
 	to = append(to, rc_email_list)
-	subject := "Subject: CPUBoundBot notice (" + username + ")\n"
+	//subject := "Subject: CPUBoundBot notice (" + username + ")\n"
+	subject := "Subject: Discovery - CPUBoundBot notice \n"
 	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
-	body := "<html><body>Hello User,<br><br>We have encountered your job running on the login node (" + hostName + ")." + "<br>" +
-		"The following are the processes running under your user account," + "<br>" +
+	body := "<html><body>Dear " + username + ",<br><br>We have noticed that you're running an intensive CPU-bound activity on one of the login nodes(" + hostName + "), as detailed below." + "<br>" +
 		"<pre>" + message + "</pre><br>" + "CPU usage: " + usage + "<br>" +
-		"Kindly do not run CPU intensive tasks on the login nodes. " + "<br>" +
-		"Please run a srun command to get compute node or submit your program in sbatch script. " +
-		"Refer below links for more information on sbatch and srun," + "<br>" +
-		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/sbatch.html" + ">sbatch documentation</a><br>" +
-		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/srun.html" + ">srun documentation</a><br>"
+		"The login node should not be used for CPU intensive activities, as this can impact the performance of this node. " + "<br>" +
+		"It also will not give you the best performance for the tasks you are trying to do. " +
+		"Please check our <a href=" + "https://rc-docs.northeastern.edu/en/latest/get_started/connect.html#next-steps" + ">Next setps</a> documentation." + "<br><br>" +
+		"If you are trying to run a job, you should move to a compute node. " +
+		"You can do this interactively using the srun command or non-interactively using sbatch command. " +
+		"Please see our documentation on how to do this:  " +
+		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/sbatch.html" + ">Using sbatch</a>; " +
+		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/srun.html" + ">Using srun</a>.<br><br>" +
+		"If you are trying to transfer data, we have a dedicated transfer node that you should use. Please see our documentation on transferring data for more information: " +
+		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/transferringdata.html" + ">Transferring Data</a>." + "<br><br>" +
+		"If you have any questions or need further assistance, feel free to email or book a consultation with us." + "<br>"
 
-	tail := "<br>" + "Thanks," + "<br>" + "Research Computing." + "<br>" + "Northeastern University." + "<br>" + 
-	"<a href=" + "mailto:rchelp@northeastern.edu" + ">RC Help</a>" +	"</body></html>"
+	tail := "<br>" + "Thanks," + "<br>" + "The Research Computing Team" + "<br>" + "Northeastern University." + "<br>" +
+		"<a href=" + "mailto:rchelp@northeastern.edu" + ">rchelp@northeastern.edu</a>" + "<br>" +
+		"<a href=" + "https://outlook.office365.com/owa/calendar/ResearchComputing2@northeastern.onmicrosoft.com/bookings/" + ">Book your appointment</a>" + "</body></html>"
 	msg := []byte(subject + mime + body + tail)
 
 	err := smtp.SendMail("smtp.discovery.neu.edu:25", nil, from, to, msg)
@@ -184,58 +193,58 @@ func compareUsage(old Reading, new Reading, maxusage int) {
 	for uid, cpu := range new.Entries {
 		used := cpu - old.Entries[uid]
 		usage := int(math.Round(float64(used) / float64(duration) * 100))
-			if usage >= maxusage {
-				user, err := user.LookupId(uid)
-				if err != nil {
-					log.Fatalf("Unable to resolve uid %s\n", uid)
-				}
-				username := user.Username
-				cpuUsage := strconv.Itoa(usage) + "%"
-				infractions := CgLs(uid)
-				//writing current log to validate against the main log
-				violator := uid + "," + username + "," + cpuUsage
-				fmt.Println("compareUsage usage >= max usage", violator)
-				writeLog(violator, currentFile)
 
-				check := IsExist(uid, LOG_FILE)
-				if !check {
-					//UID is new entry
-					fmt.Println("compareUsage---check false..UID do not exist in main log")
-					notice, timeStamp := alertEmail(username, infractions, cpuUsage)
-					line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
-					writeLog(line, LOG_FILE)
-				} else {
-					//UID already exist in file; then check for "notified" flag
-					fmt.Println("compareUsage---check true..UID already exist in main log")
-					input, err := ioutil.ReadFile(LOG_FILE)
-					if err != nil {
-						log.Fatalln(err)
-					}
-					lines := strings.Split(string(input), "\n")
-					for i, line := range lines {
-						if strings.Contains(line, uid) {
-							word := strings.Split(lines[i], ",")
-							notice := word[3]
-							sent, _ := strconv.ParseInt(word[4], 10, 64)
-							timeNow := timeCheck()
-							timeCheck := timeNow - sent
-							notifyCheck := strings.Compare(notice, "un-notified")
-							//if notifyCheck == 0 || timeCheck >= 600 {  --commented by deena
-							if notifyCheck == 0 || timeCheck >= 60 {
-								fmt.Println("compareUsage---check true..UID already exist in main log...un-notified or time check greater than 600")
-								notice, timeStamp := alertEmail(username, infractions, cpuUsage)
-								line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
-								lines[i] = line
-							}
+		if usage >= maxusage {
+			user, err := user.LookupId(uid)
+			if err != nil {
+				log.Fatalf("Unable to resolve uid %s\n", uid)
+			}
+			username := user.Username
+			cpuUsage := strconv.Itoa(usage) + "%"
+			infractions := CgLs(uid)
+			//writing current log to validate against the main log
+			violator := uid + "," + username + "," + cpuUsage
+			fmt.Println("compareUsage usage >= max usage", violator)
+			writeLog(violator, currentFile)
+			check := IsExist(uid, LOG_FILE)
+			if !check {
+				//UID is new entry
+				fmt.Println("compareUsage---check false..UID do not exist in main log")
+				notice, timeStamp := alertEmail(username, infractions, cpuUsage)
+				line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
+				writeLog(line, LOG_FILE)
+			} else {
+				//UID already exist in file; then check for "notified" flag
+				fmt.Println("compareUsage---check true..UID already exist in main log")
+				input, err := ioutil.ReadFile(LOG_FILE)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				lines := strings.Split(string(input), "\n")
+				for i, line := range lines {
+					if strings.Contains(line, uid) {
+						word := strings.Split(lines[i], ",")
+						notice := word[3]
+						sent, _ := strconv.ParseInt(word[4], 10, 64)
+						timeNow := timeCheck()
+						timeCheck := timeNow - sent
+						notifyCheck := strings.Compare(notice, "un-notified")
+						//if notifyCheck == 0 || timeCheck >= 600 {  --commented by deena
+						if notifyCheck == 0 || timeCheck >= 60 {
+							fmt.Println("compareUsage---check true..UID already exist in main log...un-notified or time check greater than 600")
+							notice, timeStamp := alertEmail(username, infractions, cpuUsage)
+							line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
+							lines[i] = line
 						}
 					}
-					output := strings.Join(lines, "\n")
-					err = ioutil.WriteFile(LOG_FILE, []byte(output), 0644)
-					if err != nil {
-						log.Fatalln(err)
-					}
+				}
+				output := strings.Join(lines, "\n")
+				err = ioutil.WriteFile(LOG_FILE, []byte(output), 0644)
+				if err != nil {
+					log.Fatalln(err)
 				}
 			}
+		}
 	}
 
 }
@@ -330,10 +339,14 @@ func main() {
 		log.Fatal(e)
 	}
 
+	//Deleting current log if already present
+	if _, err := os.Stat(currentFile); err == nil {
+		os.Remove(currentFile)
+	}
+
 	for {
 
 		c := Config{Period: "5m", MaxUsage: 35} 
-		//c := Config{Period: "5s", MaxUsage: 0}
 		period, err := time.ParseDuration(c.Period)
 		if err != nil {
 			log.Fatalf("unable to parse period")
