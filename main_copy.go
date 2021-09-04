@@ -5,9 +5,7 @@ import (
 	"math"
 	"net/smtp"
 	"time"
-
 	"github.com/atc0005/go-teams-notify/v2"
-
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -32,11 +30,21 @@ type Reading struct {
 //Global variables
 var hostName string
 var currentFile string
-var LOG_FILE string = "/home/d.dasarathan/cpuboundbot/cpubot_test_"
-var rc_email_list = "dasarathan.d@northeastern.edu"
 
+//log file path shd be changed to /work/rc/
+var LOG_FILE string = "/home/d.dasarathan/cpuboundbot/cpubot_test_"
+
+//var rc_email_list = "rchelp@northeastern.edu, d.dasarathan@northeastern.edu" --for test
 const SLICES = "/sys/fs/cgroup/cpu/user.slice"
+
+// url list
+const txData = "https://rc-docs.northeastern.edu/en/latest/using-discovery/transferringdata.html"
 const webhookUrl = "https://northeastern.webhook.office.com/webhookb2/8ec2dc62-2e7c-4cf2-882b-e8fe8e4f3c3f@a8eec281-aaa3-4dae-ac9b-9a398b9215e7/IncomingWebhook/90f15f2d7a9d4383b10e0415f8e975bb/ed3c5fea-f873-40fa-8474-573432ab0a58"
+const nextSteps = "https://rc-docs.northeastern.edu/en/latest/get_started/connect.html#next-steps"
+const sbatch = "https://rc-docs.northeastern.edu/en/latest/using-discovery/sbatch.html"
+const srun = "https://rc-docs.northeastern.edu/en/latest/using-discovery/srun.html"
+const rcHelp = "mailto:rchelp@northeastern.edu"
+const bookings = "https://rc.northeastern.edu/support/consulting/"
 
 func unique(stringSlice []string) []string {
 	keys := make(map[string]bool)
@@ -80,28 +88,27 @@ func IsExist(str, filepath string) bool {
 func alertEmail(username string, message string, usage string) (string, string) {
 
 	from := "rchelp@northeastern.edu"
-	to := []string{username + "@northeastern.edu"}
-	to = append(to, rc_email_list)
-	//subject := "Subject: CPUBoundBot notice (" + username + ")\n"
-	subject := "Subject: Discovery - CPUBoundBot notice \n"
+	to := []string{"d.dasarathan@northeastern.edu"}
+	subject := "Subject: Discovery - Login Node Use Warning (" + username + ")\n"
 	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
-	body := "<html><body>Dear " + username + ",<br><br>We have noticed that you're running an intensive CPU-bound activity on one of the login nodes(" + hostName + "), as detailed below." + "<br>" +
-		"<pre>" + message + "</pre><br>" + "CPU usage: " + usage + "<br>" +
-		"The login node should not be used for CPU intensive activities, as this can impact the performance of this node. " + "<br>" +
-		"It also will not give you the best performance for the tasks you are trying to do. " +
-		"Please check our <a href=" + "https://rc-docs.northeastern.edu/en/latest/get_started/connect.html#next-steps" + ">Next setps</a> documentation." + "<br><br>" +
+	body := "<html><body><p style=" + "font-family:calibri;" + ">Dear " + username + ",<br><br>" +
+		"We have noticed that you're running CPU-intensive processes on one of the login nodes(" + hostName + "), as detailed below." + "<br>" +
+		"<pre>" + message + "</pre>" + "<br>" + "CPU usage: " + usage + "<br>" +
+		"You should not use the login node for CPU intensive activities, as this can impact the performance of this node for all cluster users. " + "<br>" +
+		"Also, It will not give you the best performance for the tasks you are trying to do. " +
+		"Please reference our documentation for more information: <a href=" + nextSteps + ">Next steps</a>." + "<br><br>" +
 		"If you are trying to run a job, you should move to a compute node. " +
 		"You can do this interactively using the srun command or non-interactively using sbatch command. " +
-		"Please see our documentation on how to do this:  " +
-		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/sbatch.html" + ">Using sbatch</a>; " +
-		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/srun.html" + ">Using srun</a>.<br><br>" +
-		"If you are trying to transfer data, we have a dedicated transfer node that you should use. Please see our documentation on transferring data for more information: " +
-		"<a href=" + "https://rc-docs.northeastern.edu/en/latest/using-discovery/transferringdata.html" + ">Transferring Data</a>." + "<br><br>" +
-		"If you have any questions or need further assistance, feel free to email or book a consultation with us." + "<br>"
+		"Please see our documentation on how to do this: " +
+		"<a href=" + sbatch + ">Using sbatch</a>; " +
+		"<a href=" + srun + ">Using srun</a>.<br><br>" +
+		"If you are trying to transfer data, we have a dedicated transfer node that you should use. " +
+		"Please see our documentation on transferring data for more information: " +
+		"<a href=" + txData + ">Transferring Data</a>.<br><br>" +
+		"If you have any questions or need further assistance, feel free to email us at <a href=" + rcHelp + ">rchelp@northeastern.edu</a> " +
+		"or book a consultation with us using the link on our <a href=" + bookings + ">Consultation page</a>." + "<br>"
 
-	tail := "<br>" + "Thanks," + "<br>" + "The Research Computing Team" + "<br>" + "Northeastern University." + "<br>" +
-		"<a href=" + "mailto:rchelp@northeastern.edu" + ">rchelp@northeastern.edu</a>" + "<br>" +
-		"<a href=" + "https://outlook.office365.com/owa/calendar/ResearchComputing2@northeastern.onmicrosoft.com/bookings/" + ">Book your appointment</a>" + "</body></html>"
+	tail := "<br>" + "Thanks," + "<br>" + "The Research Computing Team" + "<br>" + "Northeastern University.</p></body></hmtl>"
 	msg := []byte(subject + mime + body + tail)
 
 	err := smtp.SendMail("smtp.discovery.neu.edu:25", nil, from, to, msg)
@@ -137,6 +144,7 @@ func notification(filepath string) ([]string, []string) {
 	return notifd, unNotifd
 }
 
+//convert UNIX time to YYYY-MM-DD HH:MM:SS
 func timeConversion(unixTime string) string {
 	uTime, _ := strconv.ParseInt(unixTime, 10, 64)
 	dateTime := time.Unix(uTime, 0)
@@ -145,12 +153,13 @@ func timeConversion(unixTime string) string {
 	return newTime
 }
 
+//send message to RC teams channel
 func teamsMessage(filepath string) {
 	notifd, unNotifd := notification(filepath)
 	mstClient := goteamsnotify.NewClient()
 	msgCard := goteamsnotify.NewMessageCard()
-	//msgCard.Title = "CPU high usage alert" for testing by deena
-	msgCard.Title = "Test alert please ignore"
+	msgCard.Title = "CPU high usage alert!!!"
+	//msgCard.Title = "Test alert please ignore"
 	messageText := "Notice: User(s) performing cpu intensive task on " + hostName + " node.<br>"
 	if len(unNotifd) > 0 {
 		userList := ""
@@ -229,9 +238,11 @@ func compareUsage(old Reading, new Reading, maxusage int) {
 						timeNow := timeCheck()
 						timeCheck := timeNow - sent
 						notifyCheck := strings.Compare(notice, "un-notified")
-						//if notifyCheck == 0 || timeCheck >= 600 {  --commented by deena
-						if notifyCheck == 0 || timeCheck >= 60 {
+						if notifyCheck == 0 || timeCheck >= 3600 {
 							fmt.Println("compareUsage---check true..UID already exist in main log...un-notified or time check greater than 600")
+							fmt.Println("notice: ", notice)
+							fmt.Printf("notifyCheck: %d \n", notifyCheck)
+							fmt.Println("timeCheck: ", strconv.FormatInt(timeCheck, 10))
 							notice, timeStamp := alertEmail(username, infractions, cpuUsage)
 							line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
 							lines[i] = line
@@ -261,7 +272,6 @@ func New() Reading {
 	}
 
 	for _, f := range files {
-
 		n := f.Name()
 		if re.Match([]byte(n)) {
 			uid := re.FindStringSubmatch(n)[1]
@@ -346,7 +356,7 @@ func main() {
 
 	for {
 
-		c := Config{Period: "5m", MaxUsage: 35} 
+		c := Config{Period: "5m", MaxUsage: 35}
 		period, err := time.ParseDuration(c.Period)
 		if err != nil {
 			log.Fatalf("unable to parse period")
@@ -360,7 +370,7 @@ func main() {
 		newReading := New()
 		fmt.Println("NewReading: ", newReading)
 
-		// compare reading 1 & 2 and check with threshold
+		// compare reading 1 & 2 and check cpuacct usage % with threshold
 		compareUsage(baseReading, newReading, c.MaxUsage)
 
 		//delete entires in LOG_FILE if not present in current log; means the violater don't exist anymore
