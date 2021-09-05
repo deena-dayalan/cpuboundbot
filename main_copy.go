@@ -5,8 +5,10 @@ import (
 	"math"
 	"net/smtp"
 	"time"
-	"github.com/atc0005/go-teams-notify/v2"
-	"fmt"
+
+	//"github.com/atc0005/go-teams-notify/v2"
+	"bytes"
+	"html/template"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -27,25 +29,33 @@ type Reading struct {
 	Entries   map[string]int
 }
 
+type mailDetails struct {
+	UserName string
+	HostName string
+	Message  string
+	Usage    string
+}
+
 //Global variables
 var hostName string
 var currentFile string
+var LOG_FILE string = "/work/rc/cpuboundbot/cpubot_"
+var rc_email = "rchelp@northeastern.edu"
+var templateFile = "emailTemplate.html"
 
-//log file path shd be changed to /work/rc/
-var LOG_FILE string = "/home/d.dasarathan/cpuboundbot/cpubot_test_"
-
-//var rc_email_list = "rchelp@northeastern.edu, d.dasarathan@northeastern.edu" --for test
 const SLICES = "/sys/fs/cgroup/cpu/user.slice"
 
 // url list
-const txData = "https://rc-docs.northeastern.edu/en/latest/using-discovery/transferringdata.html"
 const webhookUrl = "https://northeastern.webhook.office.com/webhookb2/8ec2dc62-2e7c-4cf2-882b-e8fe8e4f3c3f@a8eec281-aaa3-4dae-ac9b-9a398b9215e7/IncomingWebhook/90f15f2d7a9d4383b10e0415f8e975bb/ed3c5fea-f873-40fa-8474-573432ab0a58"
-const nextSteps = "https://rc-docs.northeastern.edu/en/latest/get_started/connect.html#next-steps"
-const sbatch = "https://rc-docs.northeastern.edu/en/latest/using-discovery/sbatch.html"
-const srun = "https://rc-docs.northeastern.edu/en/latest/using-discovery/srun.html"
-const rcHelp = "mailto:rchelp@northeastern.edu"
-const bookings = "https://rc.northeastern.edu/support/consulting/"
 
+//Log errors
+func check(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+//Removes duplicate entries and returns unique list
 func unique(stringSlice []string) []string {
 	keys := make(map[string]bool)
 	list := []string{}
@@ -58,75 +68,55 @@ func unique(stringSlice []string) []string {
 	return list
 }
 
+//Returns cpuacct usage information
 func CgLs(s string) string {
 	p := SLICES + "/user-" + s + ".slice"
 	out, err := exec.Command("systemd-cgls", p).Output()
-	if err != nil {
-		log.Fatal(err)
-	}
+	check(err)
 	return string(out)
 }
 
+//Returns UNIX time
 func timeCheck() int64 {
 	now := time.Now()
 	timeStamp := now.Unix()
 	return timeStamp
 }
 
+//Check if string exist in the file and returns True or False
 func IsExist(str, filepath string) bool {
 	b, err := ioutil.ReadFile(filepath)
-	if err != nil {
-		panic(err)
-	}
+	check(err)
 	isExist, err := regexp.Match(str, b)
-	if err != nil {
-		panic(err)
-	}
+	check(err)
 	return isExist
 }
 
-func alertEmail(username string, message string, usage string) (string, string) {
-
-	from := "rchelp@northeastern.edu"
-	to := []string{"d.dasarathan@northeastern.edu"}
-	subject := "Subject: Discovery - Login Node Use Warning (" + username + ")\n"
+//Send alert email to the violators
+func alertEmail(details mailDetails) (string, string) {
+	to := []string{details.UserName + "@northeastern.edu"}
+	to = append(to, rc_email)
+	subject := "Subject: Discovery - Login Node Use Warning (" + details.UserName + ")\n"
 	mime := "MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n"
-	body := "<html><body><p style=" + "font-family:calibri;" + ">Dear " + username + ",<br><br>" +
-		"We have noticed that you're running CPU-intensive processes on one of the login nodes(" + hostName + "), as detailed below." + "<br>" +
-		"<pre>" + message + "</pre>" + "<br>" + "CPU usage: " + usage + "<br>" +
-		"You should not use the login node for CPU intensive activities, as this can impact the performance of this node for all cluster users. " + "<br>" +
-		"Also, It will not give you the best performance for the tasks you are trying to do. " +
-		"Please reference our documentation for more information: <a href=" + nextSteps + ">Next steps</a>." + "<br><br>" +
-		"If you are trying to run a job, you should move to a compute node. " +
-		"You can do this interactively using the srun command or non-interactively using sbatch command. " +
-		"Please see our documentation on how to do this: " +
-		"<a href=" + sbatch + ">Using sbatch</a>; " +
-		"<a href=" + srun + ">Using srun</a>.<br><br>" +
-		"If you are trying to transfer data, we have a dedicated transfer node that you should use. " +
-		"Please see our documentation on transferring data for more information: " +
-		"<a href=" + txData + ">Transferring Data</a>.<br><br>" +
-		"If you have any questions or need further assistance, feel free to email us at <a href=" + rcHelp + ">rchelp@northeastern.edu</a> " +
-		"or book a consultation with us using the link on our <a href=" + bookings + ">Consultation page</a>." + "<br>"
-
-	tail := "<br>" + "Thanks," + "<br>" + "The Research Computing Team" + "<br>" + "Northeastern University.</p></body></hmtl>"
-	msg := []byte(subject + mime + body + tail)
-
-	err := smtp.SendMail("smtp.discovery.neu.edu:25", nil, from, to, msg)
+	template, _ := template.ParseFiles(templateFile)
+	var body bytes.Buffer
+	template.Execute(&body, details)
+	msg := []byte(subject + mime + body.String())
+	err := smtp.SendMail("smtp.discovery.neu.edu:25", nil, rc_email, to, msg)
 	notify := "notified"
 	timeNow := timeCheck()
 	if err != nil {
-		log.Println(err)
 		notify = "un-notified"
+		check(err)
 	}
 	timeString := strconv.FormatInt(timeNow, 10)
 	return notify, timeString
 }
 
+//Returns notified and unnotified users
 func notification(filepath string) ([]string, []string) {
 	content, err := ioutil.ReadFile(filepath)
-	if err != nil {
-		log.Println(err)
-	}
+	check(err)
 	lines := strings.Split(string(content), "\n")
 	unqLines := unique(lines)
 	notifd := []string{}
@@ -144,7 +134,7 @@ func notification(filepath string) ([]string, []string) {
 	return notifd, unNotifd
 }
 
-//convert UNIX time to YYYY-MM-DD HH:MM:SS
+//Converts and returns UNIX time to YYYY-MM-DD HH:MM:SS
 func timeConversion(unixTime string) string {
 	uTime, _ := strconv.ParseInt(unixTime, 10, 64)
 	dateTime := time.Unix(uTime, 0)
@@ -153,13 +143,13 @@ func timeConversion(unixTime string) string {
 	return newTime
 }
 
-//send message to RC teams channel
+//Triggers alert message to RC teams channel
 func teamsMessage(filepath string) {
 	notifd, unNotifd := notification(filepath)
 	mstClient := goteamsnotify.NewClient()
 	msgCard := goteamsnotify.NewMessageCard()
-	msgCard.Title = "CPU high usage alert!!!"
-	//msgCard.Title = "Test alert please ignore"
+	//msgCard.Title = "CPU high usage alert!!!"
+	msgCard.Title = "Discovery - High CPU Usage Alert!!!"
 	messageText := "Notice: User(s) performing cpu intensive task on " + hostName + " node.<br>"
 	if len(unNotifd) > 0 {
 		userList := ""
@@ -173,7 +163,6 @@ func teamsMessage(filepath string) {
 		for i := 0; i < len(notifd); i++ {
 			word := strings.Split(notifd[i], ",")
 			notified := timeConversion(word[2])
-			//userList += "Username: " + word[0] + " Usage: " + word[1] + "<br>"
 			userList += "Username: " + word[0] + " Usage: " + word[1] + " Notified: " + notified + "<br>"
 		}
 		messageText = messageText + "Email sent to the following user(s).<br>" + userList + "<br>"
@@ -183,52 +172,41 @@ func teamsMessage(filepath string) {
 	mstClient.Send(webhookUrl, msgCard)
 }
 
+//Writes string in a file
 func writeLog(line string, file string) {
-
 	logLine := line
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Println(err)
-	}
+	check(err)
 	defer f.Close()
-	if _, err := f.WriteString(logLine + "\n"); err != nil {
-		log.Println(err)
-	}
+	_, err = f.WriteString(logLine + "\n")
+	check(err)
 }
 
 func compareUsage(old Reading, new Reading, maxusage int) {
-	fmt.Println("compareUsage")
 	duration := new.Timestamp.Sub(old.Timestamp)
 	for uid, cpu := range new.Entries {
 		used := cpu - old.Entries[uid]
 		usage := int(math.Round(float64(used) / float64(duration) * 100))
-
 		if usage >= maxusage {
 			user, err := user.LookupId(uid)
-			if err != nil {
-				log.Fatalf("Unable to resolve uid %s\n", uid)
-			}
+			check(err)
 			username := user.Username
 			cpuUsage := strconv.Itoa(usage) + "%"
 			infractions := CgLs(uid)
 			//writing current log to validate against the main log
 			violator := uid + "," + username + "," + cpuUsage
-			fmt.Println("compareUsage usage >= max usage", violator)
 			writeLog(violator, currentFile)
-			check := IsExist(uid, LOG_FILE)
-			if !check {
+			checkId := IsExist(uid, LOG_FILE)
+			if !checkId {
 				//UID is new entry
-				fmt.Println("compareUsage---check false..UID do not exist in main log")
-				notice, timeStamp := alertEmail(username, infractions, cpuUsage)
+				details := mailDetails{username, hostName, infractions, cpuUsage}
+				notice, timeStamp := alertEmail(details)
 				line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
 				writeLog(line, LOG_FILE)
 			} else {
 				//UID already exist in file; then check for "notified" flag
-				fmt.Println("compareUsage---check true..UID already exist in main log")
 				input, err := ioutil.ReadFile(LOG_FILE)
-				if err != nil {
-					log.Fatalln(err)
-				}
+				check(err)
 				lines := strings.Split(string(input), "\n")
 				for i, line := range lines {
 					if strings.Contains(line, uid) {
@@ -239,11 +217,8 @@ func compareUsage(old Reading, new Reading, maxusage int) {
 						timeCheck := timeNow - sent
 						notifyCheck := strings.Compare(notice, "un-notified")
 						if notifyCheck == 0 || timeCheck >= 3600 {
-							fmt.Println("compareUsage---check true..UID already exist in main log...un-notified or time check greater than 600")
-							fmt.Println("notice: ", notice)
-							fmt.Printf("notifyCheck: %d \n", notifyCheck)
-							fmt.Println("timeCheck: ", strconv.FormatInt(timeCheck, 10))
-							notice, timeStamp := alertEmail(username, infractions, cpuUsage)
+							details := mailDetails{username, hostName, infractions, cpuUsage}
+							notice, timeStamp := alertEmail(details)
 							line := uid + "," + username + "," + cpuUsage + "," + notice + "," + timeStamp
 							lines[i] = line
 						}
@@ -251,26 +226,20 @@ func compareUsage(old Reading, new Reading, maxusage int) {
 				}
 				output := strings.Join(lines, "\n")
 				err = ioutil.WriteFile(LOG_FILE, []byte(output), 0644)
-				if err != nil {
-					log.Fatalln(err)
-				}
+				check(err)
 			}
 		}
 	}
 
 }
 
+//Returns user list with associated cpuacct usage
 func New() Reading {
-
 	now := time.Now()
 	m := make(map[string]int)
 	re := regexp.MustCompile(`^user-(\d+)\.slice`)
-
 	files, err := ioutil.ReadDir(SLICES)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	check(err)
 	for _, f := range files {
 		n := f.Name()
 		if re.Match([]byte(n)) {
@@ -282,72 +251,57 @@ func New() Reading {
 	return Reading{hostName, now, m}
 }
 
+//Reads and returns cpuacct usage information from cpuacct.usage file
 func readEntry(s string) int {
-
 	contents, err := ioutil.ReadFile(s)
-	if err != nil {
-		log.Fatalf("error reading %s\n", s)
-		return 0
-	}
+	check(err)
 	data := chomp(string(contents))
 	x, err := strconv.Atoi(data)
-	if err != nil {
-		return 0
-	}
+	check(err)
 	return x
 }
 
+//Returns substring
 func chomp(s string) string {
 	x := len(s)
 	return s[:x-1]
 }
 
+//Compare main log and current log to keep track of violators
 func logCompare(mainLog string, currLog string) {
-	//if current lof is empty (no violators); then cat /dev/null > mainlog
+	//if current log is empty (no violators); then cat /dev/null > mainlog
 	if _, err := os.Stat(currLog); err != nil {
-		fmt.Println("logCompare---current log is empty")
 		if err := os.Truncate(mainLog, 0); err != nil {
-			fmt.Println("logCompare---current log is empty..truncate main log")
 			log.Printf("Failed to truncate main log: %v", err)
 		}
 	} else {
-		fmt.Println("logCompare---current log is not empty")
 		input, err := ioutil.ReadFile(mainLog)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		check(err)
 		lines := strings.Split(string(input), "\n")
 		var newLines []string
 		for i, line := range lines {
 			word := strings.Split(lines[i], ",")
 			UID := word[0]
-			check := IsExist(UID, currLog)
-			if check {
-				fmt.Println("logCompare---current log is not empty...line exit in current log")
-				fmt.Println(line)
+			checkId := IsExist(UID, currLog)
+			if checkId {
 				newLines = append(newLines, line)
 			}
 		}
 		output := strings.Join(newLines, "\n")
 		err = ioutil.WriteFile(mainLog, []byte(output), 0644)
-		if err != nil {
-			log.Fatalln(err)
-		}
+		check(err)
 	}
 
 }
 
 func main() {
-
 	hostName, _ = os.Hostname()
 	LOG_FILE = LOG_FILE + hostName
 	currentFile = LOG_FILE + "_current"
 
 	//creating main log file
-	_, e := os.Create(LOG_FILE)
-	if e != nil {
-		log.Fatal(e)
-	}
+	_, err := os.Create(LOG_FILE)
+	check(err)
 
 	//Deleting current log if already present
 	if _, err := os.Stat(currentFile); err == nil {
@@ -358,17 +312,16 @@ func main() {
 
 		c := Config{Period: "5m", MaxUsage: 35}
 		period, err := time.ParseDuration(c.Period)
-		if err != nil {
-			log.Fatalf("unable to parse period")
-		}
+		check(err)
+
 		// CPU usage reading 1
 		baseReading := New()
-		fmt.Println("BaseReading: ", baseReading)
+
 		//sleep
 		time.Sleep(period)
+
 		// CPU usage reading 2
 		newReading := New()
-		fmt.Println("NewReading: ", newReading)
 
 		// compare reading 1 & 2 and check cpuacct usage % with threshold
 		compareUsage(baseReading, newReading, c.MaxUsage)
@@ -394,6 +347,5 @@ func main() {
 
 		//sleep
 		time.Sleep(period)
-
 	}
 }
