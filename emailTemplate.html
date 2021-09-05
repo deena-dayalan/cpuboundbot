@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+    <body>
+        <p style="font-family:calibri;">
+            Dear {{.UserName}},
+            <br><br>
+            We have noticed that you're running CPU-intensive processes on one of the login nodes({{.HostName}}), as detailed below.
+            <br>
+        </p>    
+            <pre>{{.Message}}</pre>
+        <p style="font-family:calibri;">
+            CPU usage: {{.Usage}}
+            <br>
+            You should not use the login node for CPU intensive activities, as this can impact the performance of this node for all cluster users.
+            <br>
+            Also, It will not give you the best performance for the tasks you are trying to do. Please reference our documentation for more information: <a href="https://rc-docs.northeastern.edu/en/latest/get_started/connect.html#next-steps">Next steps</a>.
+            <br><br>
+            If you are trying to run a job, you should move to a compute node. You can do this interactively using the srun command or non-interactively using sbatch command. 
+            Please see our documentation on how to do this: <a href="https://rc-docs.northeastern.edu/en/latest/using-discovery/sbatch.html">Using sbatch</a>; <a href="https://rc-docs.northeastern.edu/en/latest/using-discovery/srun.html">Using srun</a>.
+            <br><br>
+            If you are trying to transfer data, we have a dedicated transfer node that you should use. Please see our documentation on transferring data for more information:
+            <a href="https://rc-docs.northeastern.edu/en/latest/using-discovery/transferringdata.html">Transferring Data</a>.
+            <br><br>
+            If you have any questions or need further assistance, feel free to email us at <a href="mailto:rchelp@northeastern.edu">rchelp@northeastern.edu</a> 
+            or book a consultation with us using the link on our <a href="https://rc.northeastern.edu/support/consulting/">Consultation page</a>.
+            <br>
+            <br>
+            Thanks,
+            <br>
+            The Research Computing Team
+            <br>
+            Northeastern University.
+            </p>
+    </body>
+</hmtl>
