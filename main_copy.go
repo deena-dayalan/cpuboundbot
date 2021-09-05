@@ -5,8 +5,7 @@ import (
 	"math"
 	"net/smtp"
 	"time"
-
-	//"github.com/atc0005/go-teams-notify/v2"
+	"github.com/atc0005/go-teams-notify/v2"
 	"bytes"
 	"html/template"
 	"io/ioutil"
